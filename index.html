@@ -1,298 +1,394 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hanabi Team Randomizer (R0 vs H-Group)</title>
-  <link rel="stylesheet" href="main.css">
-</head>
-<body>
-  <h1>Hanabi Team Randomizer</h1>
-  <div class="muted">Guarantees <span class="pill">R0-only</span> and <span class="pill">H-only</span> never end up on the same team. Flex players get assigned to a pool each round.</div>
-
-  <div class="grid" style="margin-top:16px;">
-    <div class="card">
-      <div class="row" style="margin-bottom:10px;">
-        <div>
-          <label class="small muted">Input format</label>
-          <div class="small">
-            One per line: <code>Name | R0</code>, <code>Name | H</code>, or <code>Name | F</code>
-          </div>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Hanabi Team Randomizer (R0 vs H-Group)</title>
+        <link rel="stylesheet" href="main.css" />
+    </head>
+    <body>
+        <h1>Hanabi Team Randomizer</h1>
+        <div class="muted">
+            Guarantees <span class="pill">R0-only</span> and <span class="pill">H-only</span> never end up on the same team.
+            If a player is neither, they’re treated as <span class="pill">flex</span>.
         </div>
-        <div>
-          <label class="small muted">Example</label>
-          <div class="small"><code>Alice | R0</code><br/><code>Bob | H</code><br/><code>Cathy | F</code></div>
+
+        <div class="grid" style="margin-top: 16px">
+            <div class="card">
+                <div class="row4">
+                    <div>
+                        <label class="small muted">Player name</label>
+                        <input id="nameInput" placeholder="e.g. Cathy" />
+                    </div>
+                    <label class="checkbox" title="R0-only">
+                        <input id="r0OnlyToggle" type="checkbox" />
+                        <span class="small">R0-only</span>
+                    </label>
+                    <label class="checkbox" title="H-only">
+                        <input id="hOnlyToggle" type="checkbox" />
+                        <span class="small">H-only</span>
+                    </label>
+                </div>
+
+                <div class="row" style="margin-top:10px;">
+                    <button id="addBtn">Add player</button>
+                    <button id="clearBtn" class="btn-danger">Clear all</button>
+                </div>
+
+                <div id="list" class="list"></div>
+                <div id="hint" class="small muted" style="margin-top:8px;"></div>
+
+                <div class="row3" style="margin-top: 12px">
+                    <div>
+                        <label class="small muted">Team size</label>
+                        <select id="teamMode">
+                            <option value="34">3–4 (default)</option>
+                            <option value="3">Only 3</option>
+                            <option value="4">Only 4</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="small muted">Seed (optional)</label>
+                        <input id="seed" placeholder="e.g. round-7" />
+                    </div>
+                    <div>
+                        <label class="small muted">Try limit</label>
+                        <select id="tries">
+                            <option value="5000">5,000</option>
+                            <option value="20000" selected>20,000</option>
+                            <option value="80000">80,000</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row" style="margin-top: 12px">
+                    <button id="run">Generate teams</button>
+                    <button id="copy">Copy output</button>
+                </div>
+
+                <details>
+                    <summary class="small muted">Notes</summary>
+                    <div class="small muted" style="margin-top: 8px">
+                        - If a legal split can’t be found, it’s usually because
+                        one pool ends up with a count that can’t form valid team
+                        sizes (like 1, 2, 5 for “only 4”, etc.).<br />
+                        - With 12–16 people this runs instantly in the browser.
+                    </div>
+                </details>
+            </div>
+
+            <div class="card">
+                <div class="row" style="margin-bottom: 10px">
+                    <div class="small muted">Output</div>
+                    <div
+                        id="status"
+                        class="small muted"
+                        style="text-align: right"
+                    ></div>
+                </div>
+                <div id="output" class="out"></div>
+            </div>
         </div>
-      </div>
 
-      <textarea id="players" spellcheck="false" placeholder="Paste players here...&#10;Alice | R0&#10;Bob | H&#10;Cathy | F"></textarea>
+        <script>
+            // ---------- storage ----------
+            const STORAGE_KEY = "hanabi_randomizer_players_v2";
+            /** player: { id: string, name: string, mode: "R0"|"H"|null }  (null => flex) */
+            let players = [];
 
-      <div class="row3" style="margin-top:12px;">
-        <div>
-          <label class="small muted">Team size</label>
-          <select id="teamMode">
-            <option value="34">3–4 (default)</option>
-            <option value="3">Only 3</option>
-            <option value="4">Only 4</option>
-          </select>
-        </div>
-        <div>
-          <label class="small muted">Seed (optional)</label>
-          <input id="seed" placeholder="e.g. round-7" />
-        </div>
-        <div>
-          <label class="small muted">Try limit</label>
-          <select id="tries">
-            <option value="5000">5,000</option>
-            <option value="20000" selected>20,000</option>
-            <option value="80000">80,000</option>
-          </select>
-        </div>
-      </div>
+            function loadPlayers() {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw) return [];
+                    const arr = JSON.parse(raw);
+                    if (!Array.isArray(arr)) return [];
+                    return arr
+                        .filter(p => p && typeof p.name === "string")
+                        .map(p => ({ id: p.id || crypto.randomUUID(), name: p.name.trim(), mode: (p.mode === "R0" || p.mode === "H") ? p.mode : null }))
+                        .filter(p => p.name.length);
+                } catch { return []; }
+            }
+            function savePlayers() {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
+            }
 
-      <div class="row" style="margin-top:12px;">
-        <button id="run">Generate teams</button>
-        <button id="copy">Copy output</button>
-      </div>
+            // ---------- RNG ----------
+            function hashToUint32(str) {
+                let h = 2166136261 >>> 0;
+                for (let i = 0; i < str.length; i++) {
+                    h ^= str.charCodeAt(i);
+                    h = Math.imul(h, 16777619);
+                }
+                return h >>> 0;
+            }
+            function mulberry32(seed) {
+                return function() {
+                    let t = (seed += 0x6D2B79F5) >>> 0;
+                    t = Math.imul(t ^ (t >>> 15), t | 1);
+                    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+            }
+            function shuffle(arr, rand) {
+                for (let i = arr.length - 1; i > 0; i--) {
+                    const j = Math.floor(rand() * (i + 1));
+                    [arr[i], arr[j]] = [arr[j], arr[i]];
+                }
+                return arr;
+            }
 
-      <details>
-        <summary class="small muted">Notes</summary>
-        <div class="small muted" style="margin-top:8px;">
-          - If a legal split can’t be found, it’s usually because one pool ends up with a count that can’t form valid team sizes (like 1, 2, 5 for “only 4”, etc.).<br/>
-          - With 12–16 people this runs instantly in the browser.
-        </div>
-      </details>
-    </div>
+            // ---------- team sizes ----------
+            function teamSizesFor(n, mode) {
+                if (mode === "3") return (n % 3 === 0) ? Array(n/3).fill(3) : null;
+                if (mode === "4") return (n % 4 === 0) ? Array(n/4).fill(4) : null;
 
-    <div class="card">
-      <div class="row" style="margin-bottom:10px;">
-        <div class="small muted">Output</div>
-        <div id="status" class="small muted" style="text-align:right;"></div>
-      </div>
-      <div id="output" class="out"></div>
-    </div>
-  </div>
+                // 3/4 combo: 3a + 4b = n
+                let best = null;
+                for (let b = 0; 4*b <= n; b++) {
+                    const rem = n - 4*b;
+                    if (rem % 3 !== 0) continue;
+                    const a = rem / 3;
+                    const teams = a + b;
+                    const score = teams * 1000 + b;
+                    if (!best || score > best.score) best = { a, b, score };
+                }
+                if (!best) return null;
+                const sizes = [];
+                for (let i = 0; i < best.b; i++) sizes.push(4);
+                for (let i = 0; i < best.a; i++) sizes.push(3);
+                return sizes;
+            }
 
-<script>
-  // --- RNG (seeded optional) ---
-  function hashToUint32(str) {
-    let h = 2166136261 >>> 0;
-    for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
-  function mulberry32(seed) {
-    return function() {
-      let t = (seed += 0x6D2B79F5) >>> 0;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  function shuffle(arr, rand) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
+            function sliceIntoTeams(names, sizes) {
+                const teams = [];
+                let idx = 0;
+                for (const sz of sizes) {
+                    teams.push(names.slice(idx, idx + sz));
+                    idx += sz;
+                }
+                return teams;
+            }
 
-  // --- parsing ---
-  function parsePlayers(text) {
-    const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const r0 = [], h = [], f = [];
-    const errors = [];
-    for (const line of lines) {
-      const parts = line.split("|").map(s => s.trim());
-      if (parts.length < 2) { errors.push(`Bad line (missing "|"): ${line}`); continue; }
-      const name = parts[0];
-      const typeRaw = parts[1].toUpperCase();
-      const type = (typeRaw === "R0" || typeRaw === "R") ? "R0"
-                 : (typeRaw === "H" || typeRaw === "HG" || typeRaw === "HGROUP") ? "H"
-                 : (typeRaw === "F" || typeRaw === "FLEX" || typeRaw === "FLEXIBLE") ? "F"
-                 : null;
-      if (!name) { errors.push(`Missing name: ${line}`); continue; }
-      if (!type) { errors.push(`Unknown type "${parts[1]}" in: ${line}`); continue; }
-      if (type === "R0") r0.push(name);
-      else if (type === "H") h.push(name);
-      else f.push(name);
-    }
-    return { r0, h, f, errors };
-  }
+            // ---------- solver ----------
+            function generateTeams({ r0Only, hOnly, flex, mode, seedStr, tryLimit }) {
+                const seed = seedStr ? hashToUint32(seedStr) : (Date.now() >>> 0);
+                const rand = mulberry32(seed);
 
-  // --- team size feasibility ---
-  // returns array of team sizes that exactly sum to n, or null
-  function teamSizesFor(n, mode) {
-    if (mode === "3") return (n % 3 === 0) ? Array(n/3).fill(3) : null;
-    if (mode === "4") return (n % 4 === 0) ? Array(n/4).fill(4) : null;
+                let best = null;
 
-    // mode "34": find any 3/4 combo: 3a + 4b = n
-    // preference: maximize number of teams (more 3s) but not critical
-    let best = null;
-    for (let b = 0; 4*b <= n; b++) {
-      const rem = n - 4*b;
-      if (rem % 3 !== 0) continue;
-      const a = rem / 3;
-      const teams = a + b;
-      const score = teams * 1000 + b; // slight tie-breaker
-      if (!best || score > best.score) best = { a, b, score };
-    }
-    if (!best) return null;
-    const sizes = [];
-    for (let i = 0; i < best.b; i++) sizes.push(4);
-    for (let i = 0; i < best.a; i++) sizes.push(3);
-    return sizes;
-  }
+                for (let t = 0; t < tryLimit; t++) {
+                    const rPool = r0Only.slice();
+                    const hPool = hOnly.slice();
 
-  function sliceIntoTeams(names, sizes) {
-    const teams = [];
-    let idx = 0;
-    for (const sz of sizes) {
-      teams.push(names.slice(idx, idx + sz));
-      idx += sz;
-    }
-    return teams;
-  }
+                    for (const name of flex) (rand() < 0.5 ? rPool : hPool).push(name);
 
-  // --- search flex assignments ---
-  function generateTeams({ r0Only, hOnly, flex, mode, seedStr, tryLimit }) {
-    const seed = seedStr ? hashToUint32(seedStr) : (Date.now() >>> 0);
-    const rand = mulberry32(seed);
+                    const rSizes = teamSizesFor(rPool.length, mode);
+                    const hSizes = teamSizesFor(hPool.length, mode);
+                    if (!rSizes || !hSizes) continue;
 
-    // For brute force, we random-sample assignments rather than iterate all 2^F.
-    // That stays fast if someone marks tons of flex players.
-    let best = null;
+                    const imbalance = Math.abs(rPool.length - hPool.length);
+                    const score = 100000 - imbalance * 100 + (rSizes.length + hSizes.length);
+                    if (!best || score > best.score) {
+                        best = { rPool, hPool, rSizes, hSizes, score, seed };
+                        if (imbalance === 0) break;
+                    }
+                }
 
-    for (let t = 0; t < tryLimit; t++) {
-      const rPool = r0Only.slice();
-      const hPool = hOnly.slice();
+                if (!best) {
+                    return { ok: false, seed, message:
+                        `No legal split found within ${tryLimit} tries.\n` +
+                        `Usually this means one pool ends up with a player count that can’t form valid teams.\n` +
+                        `Try changing team mode, or making one more person flex, or adjusting player count.` };
+                }
 
-      for (const name of flex) {
-        (rand() < 0.5 ? rPool : hPool).push(name);
-      }
+                const rand2 = mulberry32(best.seed ^ 0x9E3779B9);
+                shuffle(best.rPool, rand2);
+                shuffle(best.hPool, rand2);
+                shuffle(best.rSizes, rand2);
+                shuffle(best.hSizes, rand2);
 
-      const rSizes = teamSizesFor(rPool.length, mode);
-      const hSizes = teamSizesFor(hPool.length, mode);
-      if (!rSizes || !hSizes) continue;
+                const rTeams = sliceIntoTeams(best.rPool, best.rSizes);
+                const hTeams = sliceIntoTeams(best.hPool, best.hSizes);
 
-      // scoring: balance pools (optional), plus prefer fewer leftovers (none anyway), etc.
-      const imbalance = Math.abs(rPool.length - hPool.length);
-      const score = 100000 - imbalance * 100 + (rSizes.length + hSizes.length);
+                return { ok: true, seed: best.seed, rTeams, hTeams, rCount: best.rPool.length, hCount: best.hPool.length };
+            }
 
-      if (!best || score > best.score) {
-        best = { rPool, hPool, rSizes, hSizes, score, seed };
-        if (imbalance === 0) break; // good enough
-      }
-    }
+            // ---------- UI ----------
+            const $nameInput = document.getElementById("nameInput");
+            const $r0OnlyToggle = document.getElementById("r0OnlyToggle");
+            const $hOnlyToggle = document.getElementById("hOnlyToggle");
+            const $teamMode = document.getElementById("teamMode");
+            const $seed = document.getElementById("seed");
+            const $tries = document.getElementById("tries");
+            const $list = document.getElementById("list");
+            const $hint = document.getElementById("hint");
+            const $output = document.getElementById("output");
+            const $status = document.getElementById("status");
 
-    if (!best) {
-      return { ok: false, seed, message:
-        `No legal split found within ${tryLimit} tries.\n` +
-        `Try: (1) change team mode, (2) mark someone flexible, or (3) change player count.\n` +
-        `Tip: counts must be splittable into valid team sizes within each pool.` };
-    }
+            function setStatus(text, kind) {
+                $status.textContent = text;
+                $status.className = "small " + (kind === "err" ? "err" : kind === "ok" ? "ok" : "muted");
+            }
 
-    // Final shuffle and team creation (use a fresh RNG stream so output is stable)
-    const rand2 = mulberry32(best.seed ^ 0x9E3779B9);
-    shuffle(best.rPool, rand2);
-    shuffle(best.hPool, rand2);
-    shuffle(best.rSizes, rand2);
-    shuffle(best.hSizes, rand2);
+            function normalizeName(name) {
+                return name.trim().replace(/\s+/g, " ");
+            }
 
-    const rTeams = sliceIntoTeams(best.rPool, best.rSizes);
-    const hTeams = sliceIntoTeams(best.hPool, best.hSizes);
+            // prevent both toggles on
+            $r0OnlyToggle.addEventListener("change", () => {
+                if ($r0OnlyToggle.checked) $hOnlyToggle.checked = false;
+            });
+            $hOnlyToggle.addEventListener("change", () => {
+                if ($hOnlyToggle.checked) $r0OnlyToggle.checked = false;
+            });
 
-    return { ok: true, seed: best.seed, rTeams, hTeams, rCount: best.rPool.length, hCount: best.hPool.length };
-  }
+            function renderList() {
+                $list.innerHTML = "";
+                const total = players.length;
+                const r0 = players.filter(p => p.mode === "R0").length;
+                const h = players.filter(p => p.mode === "H").length;
+                const flex = total - r0 - h;
 
-  // --- UI ---
-  const $players = document.getElementById("players");
-  const $teamMode = document.getElementById("teamMode");
-  const $seed = document.getElementById("seed");
-  const $tries = document.getElementById("tries");
-  const $output = document.getElementById("output");
-  const $status = document.getElementById("status");
+                $hint.textContent = total
+                    ? `Players: ${total} (R0-only: ${r0}, H-only: ${h}, flex: ${flex}) — saved in this browser`
+                    : `No players yet. Add some above. (Saved locally in your browser.)`;
 
-  function setStatus(text, kind) {
-    $status.textContent = text;
-    $status.className = "small " + (kind === "err" ? "err" : kind === "ok" ? "ok" : "muted");
-  }
+                for (const p of players) {
+                    const row = document.createElement("div");
+                    row.className = "player";
 
-  function render(res, seedStrProvided) {
-    if (!res.ok) {
-      setStatus("No solution", "err");
-      $output.textContent = `❌ ${res.message}\n\nSeed used: ${seedStrProvided ? $seed.value.trim() : res.seed}`;
-      return;
-    }
-    setStatus("Generated", "ok");
+                    const name = document.createElement("div");
+                    name.className = "name";
+                    name.textContent = p.name;
 
-    const seedLabel = seedStrProvided ? $seed.value.trim() : res.seed;
+                    const tag = document.createElement("div");
+                    tag.className = "tag " + (p.mode ? "" : "flex");
+                    tag.textContent = p.mode === "R0" ? "R0-only" : p.mode === "H" ? "H-only" : "flex";
 
-    let txt = "";
-    txt += `Seed: ${seedLabel}\n\n`;
-    txt += `R0 pool (${res.rCount})\n`;
-    res.rTeams.forEach((t, i) => { txt += `  R${i+1}: ${t.join(", ")}\n`; });
-    txt += `\nH pool (${res.hCount})\n`;
-    res.hTeams.forEach((t, i) => { txt += `  H${i+1}: ${t.join(", ")}\n`; });
+                    const toggle = document.createElement("button");
+                    toggle.className = "btn-sm";
+                    toggle.textContent = "Cycle";
+                    toggle.title = "flex → R0-only → H-only → flex";
+                    toggle.addEventListener("click", () => {
+                        p.mode = (p.mode === null) ? "R0" : (p.mode === "R0") ? "H" : null;
+                        savePlayers();
+                        renderList();
+                    });
 
-    $output.textContent = txt.trimEnd();
-  }
+                    const del = document.createElement("button");
+                    del.className = "btn-sm btn-danger";
+                    del.textContent = "Remove";
+                    del.addEventListener("click", () => {
+                        players = players.filter(x => x.id !== p.id);
+                        savePlayers();
+                        renderList();
+                    });
 
-  document.getElementById("run").addEventListener("click", () => {
-    const parsed = parsePlayers($players.value);
-    if (parsed.errors.length) {
-      setStatus("Fix input", "err");
-      $output.textContent = "❌ Input issues:\n" + parsed.errors.map(e => `- ${e}`).join("\n");
-      return;
-    }
-    if (parsed.r0.length + parsed.h.length + parsed.f.length < 3) {
-      setStatus("Need players", "err");
-      $output.textContent = "Add at least 3 players.";
-      return;
-    }
-    const seedStr = $seed.value.trim();
-    const res = generateTeams({
-      r0Only: parsed.r0,
-      hOnly: parsed.h,
-      flex: parsed.f,
-      mode: $teamMode.value,
-      seedStr,
-      tryLimit: Number($tries.value)
-    });
-    render(res, Boolean(seedStr));
-  });
+                    row.appendChild(name);
+                    row.appendChild(tag);
+                    row.appendChild(toggle);
+                    row.appendChild(del);
+                    $list.appendChild(row);
+                }
+            }
 
-  document.getElementById("copy").addEventListener("click", async () => {
-    const text = $output.textContent || "";
-    if (!text.trim()) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus("Copied", "ok");
-      setTimeout(() => setStatus("", ""), 1200);
-    } catch {
-      setStatus("Copy failed (browser blocked)", "err");
-    }
-  });
+            function addPlayerFromForm() {
+                const name = normalizeName($nameInput.value);
+                if (!name) return;
 
-  // a little starter content
-  if (!$players.value.trim()) {
-    $players.value =
-`Alice | R0
-Bob | H
-Cathy | F
-Dan | F
-Eli | R0
-Fran | H
-Gus | F
-Hana | R0
-Ivan | H
-Jules | F
-Kira | R0
-Liam | H`;
-  }
-  setStatus("", "");
-</script>
-</body>
+                // de-dupe by case-insensitive name
+                const exists = players.some(p => p.name.toLowerCase() === name.toLowerCase());
+                if (exists) {
+                    setStatus("Name already exists", "err");
+                    return;
+                }
+
+                let mode = null;
+                if ($r0OnlyToggle.checked) mode = "R0";
+                if ($hOnlyToggle.checked) mode = "H"; // (mutually exclusive already)
+
+                players.push({ id: crypto.randomUUID(), name, mode });
+                savePlayers();
+                renderList();
+
+                $nameInput.value = "";
+                $r0OnlyToggle.checked = false;
+                $hOnlyToggle.checked = false;
+                $nameInput.focus();
+                setStatus("Added", "ok");
+                setTimeout(() => setStatus("", ""), 800);
+            }
+
+            document.getElementById("addBtn").addEventListener("click", addPlayerFromForm);
+            $nameInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") addPlayerFromForm();
+            });
+
+            document.getElementById("clearBtn").addEventListener("click", () => {
+                if (!players.length) return;
+                const ok = confirm("Clear all players?");
+                if (!ok) return;
+                players = [];
+                savePlayers();
+                renderList();
+                $output.textContent = "";
+                setStatus("", "");
+            });
+
+            document.getElementById("run").addEventListener("click", () => {
+                if (players.length < 3) {
+                    setStatus("Need players", "err");
+                    $output.textContent = "Add at least 3 players.";
+                    return;
+                }
+
+                const r0Only = players.filter(p => p.mode === "R0").map(p => p.name);
+                const hOnly  = players.filter(p => p.mode === "H").map(p => p.name);
+                const flex   = players.filter(p => p.mode === null).map(p => p.name);
+
+                const seedStr = $seed.value.trim();
+                const res = generateTeams({
+                    r0Only, hOnly, flex,
+                    mode: $teamMode.value,
+                    seedStr,
+                    tryLimit: Number($tries.value)
+                });
+
+                if (!res.ok) {
+                    setStatus("No solution", "err");
+                    $output.textContent = `❌ ${res.message}\n\nSeed used: ${seedStr ? seedStr : res.seed}`;
+                    return;
+                }
+
+                setStatus("Generated", "ok");
+                const seedLabel = seedStr ? seedStr : res.seed;
+
+                let txt = "";
+                txt += `Seed: ${seedLabel}\n\n`;
+                txt += `R0 pool (${res.rCount})\n`;
+                res.rTeams.forEach((t, i) => txt += `  R${i+1}: ${t.join(", ")}\n`);
+                txt += `\nH pool (${res.hCount})\n`;
+                res.hTeams.forEach((t, i) => txt += `  H${i+1}: ${t.join(", ")}\n`);
+
+                $output.textContent = txt.trimEnd();
+            });
+
+            document.getElementById("copy").addEventListener("click", async () => {
+                const text = $output.textContent || "";
+                if (!text.trim()) return;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    setStatus("Copied", "ok");
+                    setTimeout(() => setStatus("", ""), 1200);
+                } catch {
+                    setStatus("Copy failed (browser blocked)", "err");
+                }
+            });
+
+            // init
+            players = loadPlayers();
+            renderList();
+            setStatus("", "");
+        </script>
+    </body>
 </html>
