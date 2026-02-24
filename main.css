@@ -99,7 +99,6 @@ button {
     padding: 12px;
     border-radius: 12px;
     border: 1px solid rgba(0, 140, 255, 0.35);
-    min-height: 260px;
 }
 .pill {
     display: inline-block;
@@ -122,13 +121,6 @@ details {
 }
 code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.row4 {
-    display: flex;
-    gap: 10px;
-    align-items: end;
-    flex-wrap: wrap;
 }
 .nameInputRow {
     display: flex;
