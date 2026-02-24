@@ -88,6 +88,12 @@ button {
     flex-direction: column;
     gap: 24px;
 }
+.outputCard {
+    min-height: 420px;
+}
+.outputCard .out {
+    flex: 1;
+}
 .out {
     white-space: pre-wrap;
     padding: 12px;
