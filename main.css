@@ -68,6 +68,18 @@ button {
     gap: 12px;
     flex-wrap: wrap;
 }
+.outputHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.outputHeaderRight {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
 .card {
     border: 1px solid rgba(127, 127, 127, 0.35);
     border-radius: 12px;
